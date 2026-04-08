@@ -1,23 +1,21 @@
 #pragma once
 
-#define _USE_MATH_DEFINES
-
 #include <stdint.h>
 #include <Windows.h>
 #include <d3d9.h>
 #include <d3dx9.h>
+#include <string>
 #include <vector>
-#include <map>
+#include <unordered_map>
+#include <numbers>
 #include <cmath>
-#include <math.h>
 
 struct color {
     std::uint8_t r, g, b, a;
 
-    color() = default;
-    color(std::uint8_t r, std::uint8_t g, std::uint8_t b, std::uint8_t a = 255) : r(r), g(g), b(b), a(a) {}
+    constexpr color(std::uint8_t r, std::uint8_t g, std::uint8_t b, std::uint8_t a = 255) : r(r), g(g), b(b), a(a) {}
 
-    D3DCOLOR to_d3d() {
+    constexpr D3DCOLOR to_d3d() const {
         return D3DCOLOR_ARGB(this->a, this->r, this->g, this->b);
     }
 };
@@ -28,11 +26,11 @@ struct vertex {
 };
 
 namespace colors {
-    auto white = color(255, 255, 255);
-    auto black = color(0, 0, 0);
-    auto red = color(255, 0, 0);
-    auto green = color(0, 255, 0);
-    auto blue = color(0, 0, 255);
+    inline constexpr color white = color(255, 255, 255);
+    inline constexpr color black = color(0, 0, 0);
+    inline constexpr color red = color(255, 0, 0);
+    inline constexpr color green = color(0, 255, 0);
+    inline constexpr color blue = color(0, 0, 255);
 }
 
 enum font_weight {
@@ -41,13 +39,15 @@ enum font_weight {
     bold = FW_BOLD
 };
 
-std::map<const char*, ID3DXFont*> fonts = {};
+inline std::unordered_map<std::string, ID3DXFont*> fonts = {};
 
 namespace render {
-    LPDIRECT3DDEVICE9 device = nullptr;
+    inline LPDIRECT3DDEVICE9 device = nullptr;
 
-    void create_font(const char* name, const char* font_name, font_weight weight, std::uint8_t height, std::uint8_t width = 0, bool italic = false, std::uint8_t mip = 1) {
-        if (fonts[name] != nullptr) {
+    void create_font(const std::string& name, const char* font_name, font_weight weight, std::uint8_t height, std::uint8_t width = 0, bool italic = false, std::uint8_t mip = 1) {
+        auto it = fonts.find(name);
+
+        if (it != fonts.end()) {
             return;
         }
 
@@ -56,15 +56,27 @@ namespace render {
         D3DXCreateFontA(render::device, height, width, weight, mip, italic, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH, font_name, &fonts[name]);
     }
 
-    void text(const char* font, std::int32_t x, std::int32_t y, const char* text, color col) {
-        TEXTMETRICA metrics;
-        fonts[font]->GetTextMetricsA(&metrics);
+    void clean_fonts() {
+        for (auto& [_, font] : fonts) {
+            if (font) {
+                font->Release();
+                font = nullptr;
+            }
+        }
 
-        auto w = metrics.tmAveCharWidth * strlen(text);
+        fonts.clear();
+    }
 
-        RECT space{ x, y, x + w, y + (metrics.tmHeight * 1.5) };
+    void text(const std::string& font, std::int32_t x, std::int32_t y, const char* text, color col) {
+        auto it = fonts.find(font);
 
-        fonts[font]->DrawTextA(nullptr, text, -1, &space, DT_NOCLIP, col.to_d3d());
+        if (it == fonts.end() || !it->second) {
+            return;
+        }
+
+        RECT space{ x, y };
+
+        it->second->DrawTextA(nullptr, text, -1, &space, DT_NOCLIP, col.to_d3d());
     }
 
     void filled_rect(std::int32_t x, std::int32_t y, std::int32_t w, std::int32_t h, color col) {
@@ -88,12 +100,12 @@ namespace render {
 
     void filled_circle(std::int32_t x, std::int32_t y, std::int32_t r, color col, std::uint8_t segments = 64) {
         std::vector<vertex> vertices;
-        vertices.reserve(segments + 2);
+        vertices.reserve(segments + 1);
 
         vertices.push_back({ (float)x, (float)y, 0.f, 1.f, col.to_d3d() });
 
-        for (int i = 0; i <= segments; i++) {
-            float angle = (2.0f * M_PI * i) / segments;
+        for (std::size_t i = 0; i <= segments; i++) {
+            float angle = (2.0f * std::numbers::pi_v<float> * i) / segments;
             float x1 = x + std::cos(angle) * r;
             float y1 = y + std::sin(angle) * r;
 
@@ -105,14 +117,14 @@ namespace render {
     }
 
     void outlined_circle(std::int32_t x, std::int32_t y, std::int32_t r, color col, std::uint8_t thickness = 1, std::uint8_t segments = 64) {
-        for (int t = 0; t < thickness; t++) {
+        for (std::size_t t = 0; t < thickness; t++) {
             std::vector<vertex> vertices;
             vertices.reserve(segments + 1);
 
             float radius = r + t;
 
-            for (int i = 0; i <= segments; i++) {
-                float angle = (2.0f * M_PI * i) / segments;
+            for (std::size_t i = 0; i <= segments; i++) {
+                float angle = (2.0f * std::numbers::pi_v<float> * i) / segments;
 
                 float x1 = x + std::cos(angle) * radius;
                 float y1 = y + std::sin(angle) * radius;
