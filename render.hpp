@@ -33,27 +33,70 @@ namespace colors {
     inline constexpr color blue = color(0, 0, 255);
 }
 
-enum font_weight {
-    normal = FW_NORMAL,
-    thin = FW_THIN,
-    bold = FW_BOLD
+inline std::unordered_map<std::string, ID3DXFont*> fonts = {};
+
+enum class font_flags : std::uint8_t {
+    none = 0,
+    bold = 1 << 0,
+    italic = 1 << 1
 };
 
-inline std::unordered_map<std::string, ID3DXFont*> fonts = {};
+inline font_flags operator | (font_flags a, font_flags b) {
+    return static_cast<font_flags>(static_cast<std::uint8_t>(a) | static_cast<std::uint8_t>(b));
+}
+
+inline font_flags& operator |= (font_flags& a, font_flags b) {
+    a = a | b;
+    return a;
+}
 
 namespace render {
     inline LPDIRECT3DDEVICE9 device = nullptr;
 
-    void create_font(const std::string& name, const char* font_name, font_weight weight, std::uint8_t height, std::uint8_t width = 0, bool italic = false, std::uint8_t mip = 1) {
+    bool device_checks() {
+        if (!render::device) {
+            return false;
+        }
+
+        HRESULT coop_level = device->TestCooperativeLevel();
+
+        if (coop_level == D3DERR_DEVICELOST) {
+            return false;
+        }
+
+        if (coop_level == D3DERR_DEVICENOTRESET) {
+            return false;
+        }
+
+        return true;
+    }
+
+    bool check_font_flag(font_flags flags, font_flags test) {
+        return (static_cast<uint8_t>(flags) & static_cast<uint8_t>(test)) != 0;
+    }
+
+    void create_font(const std::string& name, const char* font_name, std::uint8_t height, font_flags flags) {
+        if (!render::device_checks()) {
+            return;
+        }
+
         auto it = fonts.find(name);
 
         if (it != fonts.end()) {
             return;
         }
 
-        fonts.insert({ name, nullptr });
+        ID3DXFont* font = nullptr;
 
-        D3DXCreateFontA(render::device, height, width, weight, mip, italic, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH, font_name, &fonts[name]);
+        auto weight = render::check_font_flag(flags, font_flags::bold) ? FW_BOLD : FW_NORMAL;
+        auto italic = render::check_font_flag(flags, font_flags::italic);
+
+        if (SUCCEEDED(D3DXCreateFontA(render::device, height, 0, weight, 1, italic, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH, font_name, &fonts[name]))) {
+            fonts.insert({ name, nullptr });
+        }
+        else {
+            return;
+        }
     }
 
     void clean_fonts() {
@@ -68,6 +111,10 @@ namespace render {
     }
 
     void text(const std::string& font, std::int32_t x, std::int32_t y, const char* text, color col) {
+        if (!render::device_checks()) {
+            return;
+        }
+
         auto it = fonts.find(font);
 
         if (it == fonts.end() || !it->second) {
@@ -80,6 +127,10 @@ namespace render {
     }
 
     void filled_rect(std::int32_t x, std::int32_t y, std::int32_t w, std::int32_t h, color col) {
+        if (!render::device_checks()) {
+            return;
+        }
+
         std::vector<vertex> vertices = {
             { (float)x, (float)y, 0.f, 1.f, col.to_d3d() },
             { (float)(x + w), (float)y, 0.f, 1.f, col.to_d3d() },
@@ -92,6 +143,10 @@ namespace render {
     }
 
     void outlined_rect(std::int32_t x, std::int32_t y, std::int32_t w, std::int32_t h, color col, std::uint8_t thickness = 1) {
+        if (!render::device_checks()) {
+            return;
+        }
+
         render::filled_rect(x, y, w, thickness, col);
         render::filled_rect(x, y, thickness, h, col);
         render::filled_rect(x + w - thickness, y, thickness, h, col);
@@ -99,6 +154,10 @@ namespace render {
     }
 
     void filled_circle(std::int32_t x, std::int32_t y, std::int32_t r, color col, std::uint8_t segments = 64) {
+        if (!render::device_checks()) {
+            return;
+        }
+
         std::vector<vertex> vertices;
         vertices.reserve(segments + 1);
 
@@ -117,6 +176,10 @@ namespace render {
     }
 
     void outlined_circle(std::int32_t x, std::int32_t y, std::int32_t r, color col, std::uint8_t thickness = 1, std::uint8_t segments = 64) {
+        if (!render::device_checks()) {
+            return;
+        }
+
         for (std::size_t t = 0; t < thickness; t++) {
             std::vector<vertex> vertices;
             vertices.reserve(segments + 1);
@@ -136,4 +199,20 @@ namespace render {
             device->DrawPrimitiveUP(D3DPT_LINESTRIP, segments, vertices.data(), sizeof(vertex));
         }
     }
-}
+
+    void line(std::int32_t x1, std::int32_t y1, std::int32_t x2, std::int32_t y2, color col, std::uint8_t thickness = 1) {
+        if (!render::device_checks()) {
+            return;
+        }
+
+        for (std::size_t i = 0; i < thickness; i++) {
+            std::vector<vertex> vertices = {
+            { (float)x1, (float)(y1 + i), 0.f, 1.f, col.to_d3d() },
+            { (float)x2, (float)(y2 + i), 0.f, 1.f, col.to_d3d() }
+            };
+
+            device->SetFVF(D3DFVF_XYZRHW | D3DFVF_DIFFUSE);
+            device->DrawPrimitiveUP(D3DPT_LINELIST, 1, vertices.data(), sizeof(vertex));
+        }
+    }
+}   
