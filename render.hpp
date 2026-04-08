@@ -2,6 +2,7 @@
 
 #define _USE_MATH_DEFINES
 
+#include <stdint.h>
 #include <Windows.h>
 #include <d3d9.h>
 #include <d3dx9.h>
@@ -11,10 +12,10 @@
 #include <math.h>
 
 struct color {
-    int r, g, b, a;
+    std::uint8_t r, g, b, a;
 
     color() = default;
-    color(int r, int g, int b, int a = 255) : r(r), g(g), b(b), a(a) {}
+    color(std::uint8_t r, std::uint8_t g, std::uint8_t b, std::uint8_t a = 255) : r(r), g(g), b(b), a(a) {}
 
     D3DCOLOR to_d3d() {
         return D3DCOLOR_ARGB(this->a, this->r, this->g, this->b);
@@ -34,7 +35,7 @@ namespace colors {
     auto blue = color(0, 0, 255);
 }
 
-enum class font_weight {
+enum font_weight {
     normal = FW_NORMAL,
     thin = FW_THIN,
     bold = FW_BOLD
@@ -45,7 +46,7 @@ std::map<const char*, ID3DXFont*> fonts = {};
 namespace render {
     LPDIRECT3DDEVICE9 device = nullptr;
 
-    void create_font(const char* name, const char* font_name, unsigned int weight, int height, int width = 0, bool italic = false, int mip = 1) {
+    void create_font(const char* name, const char* font_name, font_weight weight, std::uint8_t height, std::uint8_t width = 0, bool italic = false, std::uint8_t mip = 1) {
         if (fonts[name] != nullptr) {
             return;
         }
@@ -55,13 +56,18 @@ namespace render {
         D3DXCreateFontA(render::device, height, width, weight, mip, italic, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH, font_name, &fonts[name]);
     }
 
-    void text(const char* font, int x, int y, const char* text, color col) {
-        RECT space{ x, y, x + 1000, y + 100 };
+    void text(const char* font, std::int32_t x, std::int32_t y, const char* text, color col) {
+        TEXTMETRICA metrics;
+        fonts[font]->GetTextMetricsA(&metrics);
+
+        auto w = metrics.tmAveCharWidth * strlen(text);
+
+        RECT space{ x, y, x + w, y + (metrics.tmHeight * 1.5) };
 
         fonts[font]->DrawTextA(nullptr, text, -1, &space, DT_NOCLIP, col.to_d3d());
     }
 
-    void filled_rect(int x, int y, int w, int h, color col) {
+    void filled_rect(std::int32_t x, std::int32_t y, std::int32_t w, std::int32_t h, color col) {
         std::vector<vertex> vertices = {
             { (float)x, (float)y, 0.f, 1.f, col.to_d3d() },
             { (float)(x + w), (float)y, 0.f, 1.f, col.to_d3d() },
@@ -73,14 +79,14 @@ namespace render {
         render::device->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, vertices.data(), sizeof(vertex));
     }
 
-    void outlined_rect(int x, int y, int w, int h, color col, int thickness = 1) {
+    void outlined_rect(std::int32_t x, std::int32_t y, std::int32_t w, std::int32_t h, color col, std::uint8_t thickness = 1) {
         render::filled_rect(x, y, w, thickness, col);
         render::filled_rect(x, y, thickness, h, col);
         render::filled_rect(x + w - thickness, y, thickness, h, col);
         render::filled_rect(x, y + h - thickness, w, thickness, col);
     }
 
-    void filled_circle(int x, int y, int r, color col, int segments = 64) {
+    void filled_circle(std::int32_t x, std::int32_t y, std::int32_t r, color col, std::uint8_t segments = 64) {
         std::vector<vertex> vertices;
         vertices.reserve(segments + 2);
 
@@ -98,7 +104,7 @@ namespace render {
         device->DrawPrimitiveUP(D3DPT_TRIANGLEFAN, segments, vertices.data(), sizeof(vertex));
     }
 
-    void outlined_circle(int x, int y, int r, color col, int thickness = 1, int segments = 64) {
+    void outlined_circle(std::int32_t x, std::int32_t y, std::int32_t r, color col, std::uint8_t thickness = 1, std::uint8_t segments = 64) {
         for (int t = 0; t < thickness; t++) {
             std::vector<vertex> vertices;
             vertices.reserve(segments + 1);
