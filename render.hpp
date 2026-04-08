@@ -50,11 +50,11 @@ inline font_flags& operator |= (font_flags& a, font_flags b) {
     return a;
 }
 
-namespace render {
+namespace core {
     inline LPDIRECT3DDEVICE9 device = nullptr;
 
     bool device_checks() {
-        if (!render::device) {
+        if (!core::device) {
             return false;
         }
 
@@ -70,13 +70,118 @@ namespace render {
 
         return true;
     }
+}
 
+namespace vertex_buffer {
+    inline LPDIRECT3DVERTEXBUFFER9 buffer = nullptr;
+
+    bool create_buffer(std::size_t max_vertices = 1024) {
+        if (!core::device_checks()) {
+            return false;
+        }
+
+        if (vertex_buffer::buffer) {
+            vertex_buffer::buffer->Release();
+            vertex_buffer::buffer = nullptr;
+        }
+
+        return SUCCEEDED(core::device->CreateVertexBuffer(max_vertices * sizeof(vertex), D3DUSAGE_DYNAMIC | D3DUSAGE_WRITEONLY, D3DFVF_XYZRHW | D3DFVF_DIFFUSE, D3DPOOL_DEFAULT, &vertex_buffer::buffer, nullptr));
+    }
+
+    bool update_rect_filled(std::int32_t x, std::int32_t y, std::int32_t w, std::int32_t h, color col) {
+        if (!vertex_buffer::buffer) {
+            return false;
+        }
+
+        vertex* vertices = nullptr;
+
+        if (FAILED(vertex_buffer::buffer->Lock(0, 4 * sizeof(vertex), (void**)&vertices, D3DLOCK_DISCARD))) {
+            return false;
+        }
+
+        vertices[0] = { (float)x, (float)y, 0.f, 1.f, col.to_d3d() };
+        vertices[1] = { (float)(x + w), (float)y, 0.f, 1.f, col.to_d3d() };
+        vertices[2] = { (float)x, (float)(y + h), 0.f, 1.f, col.to_d3d() };
+        vertices[3] = { (float)(x + w), (float)(y + h), 0.f, 1.f, col.to_d3d() };
+
+        vertex_buffer::buffer->Unlock();
+        return true;
+    }
+
+    bool update_circle_filled(std::int32_t x, std::int32_t y, std::int32_t r, color col, std::uint8_t segments) {
+        if (!vertex_buffer::buffer) {
+            return false;
+        }
+
+        vertex* vertices = nullptr;
+
+        if (FAILED(vertex_buffer::buffer->Lock(0, (segments + 2) * sizeof(vertex), (void**)&vertices, D3DLOCK_DISCARD))) {
+            return false;
+        }
+
+        vertices[0] = { (float)x, (float)y, 0.f, 1.f, col.to_d3d() };
+
+        for (std::size_t i = 0; i <= segments; i++) {
+            float angle = (2.0f * std::numbers::pi_v<float> *i) / segments;
+            float x1 = x + std::cos(angle) * r;
+            float y1 = y + std::sin(angle) * r;
+
+            vertices[i + 1] = { x1, y1, 0.f, 1.f, col.to_d3d() };
+        }
+
+        vertex_buffer::buffer->Unlock();
+        return true;
+    }
+
+    bool update_circle_outlined(std::int32_t x, std::int32_t y, std::int32_t r, color col, std::uint8_t segments) {
+        if (!vertex_buffer::buffer) {
+            return false;
+        }
+
+        vertex* vertices = nullptr;
+
+        if (FAILED(vertex_buffer::buffer->Lock(0, (segments + 1) * sizeof(vertex), (void**)&vertices, D3DLOCK_DISCARD))) {
+            return false;
+        }
+
+        for (std::size_t i = 0; i <= segments; i++) {
+            float angle = (2.0f * std::numbers::pi_v<float> *i) / segments;
+            float x1 = x + std::cos(angle) * r;
+            float y1 = y + std::sin(angle) * r;
+
+            vertices[i] = { x1, y1, 0.f, 1.f, col.to_d3d() };
+        }
+
+        vertex_buffer::buffer->Unlock();
+        return true;
+    }
+
+    bool update_line(std::int32_t x1, std::int32_t y1, std::int32_t x2, std::int32_t y2, color col) {
+        if (!vertex_buffer::buffer) {
+            return false;
+        }
+
+        vertex* vertices = nullptr;
+
+        if (FAILED(vertex_buffer::buffer->Lock(0, 2 * sizeof(vertex), (void**)&vertices, D3DLOCK_DISCARD))) {
+            return false;
+        }
+
+        vertices[0] = { (float)x1, (float)y1, 0.f, 1.f, col.to_d3d() };
+        vertices[1] = { (float)x2, (float)y2, 0.f, 1.f, col.to_d3d() };
+
+        vertex_buffer::buffer->Unlock();
+        return true;
+    }
+}
+
+namespace render {
     bool check_font_flag(font_flags flags, font_flags test) {
         return (static_cast<uint8_t>(flags) & static_cast<uint8_t>(test)) != 0;
     }
 
     void create_font(const std::string& name, const char* font_name, std::uint8_t height, font_flags flags) {
-        if (!render::device_checks()) {
+        if (!core::device_checks()) {
             return;
         }
 
@@ -91,8 +196,8 @@ namespace render {
         auto weight = render::check_font_flag(flags, font_flags::bold) ? FW_BOLD : FW_NORMAL;
         auto italic = render::check_font_flag(flags, font_flags::italic);
 
-        if (SUCCEEDED(D3DXCreateFontA(render::device, height, 0, weight, 1, italic, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH, font_name, &fonts[name]))) {
-            fonts.insert({ name, nullptr });
+        if (SUCCEEDED(D3DXCreateFontA(core::device, height, 0, weight, 1, italic, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH, font_name, &fonts[name]))) {
+            fonts[name] = font;
         }
         else {
             return;
@@ -111,7 +216,7 @@ namespace render {
     }
 
     void text(const std::string& font, std::int32_t x, std::int32_t y, const char* text, color col) {
-        if (!render::device_checks()) {
+        if (!core::device_checks()) {
             return;
         }
 
@@ -127,23 +232,25 @@ namespace render {
     }
 
     void filled_rect(std::int32_t x, std::int32_t y, std::int32_t w, std::int32_t h, color col) {
-        if (!render::device_checks()) {
+        if (!core::device_checks()) {
             return;
         }
 
-        std::vector<vertex> vertices = {
-            { (float)x, (float)y, 0.f, 1.f, col.to_d3d() },
-            { (float)(x + w), (float)y, 0.f, 1.f, col.to_d3d() },
-            { (float)x, (float)(y + h), 0.f, 1.f, col.to_d3d() },
-            { (float)(x + w), (float)(y + h), 0.f, 1.f, col.to_d3d() }
-        };
+        if (!vertex_buffer::buffer) {
+            return;
+        }
 
-        render::device->SetFVF(D3DFVF_XYZRHW | D3DFVF_DIFFUSE);
-        render::device->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, vertices.data(), sizeof(vertex));
+        if (!vertex_buffer::update_rect_filled(x, y, w, h, col)) {
+            return;
+        }
+
+        core::device->SetFVF(D3DFVF_XYZRHW | D3DFVF_DIFFUSE);
+        core::device->SetStreamSource(0, vertex_buffer::buffer, 0, sizeof(vertex));
+        core::device->DrawPrimitive(D3DPT_TRIANGLESTRIP, 0, 2);
     }
 
     void outlined_rect(std::int32_t x, std::int32_t y, std::int32_t w, std::int32_t h, color col, std::uint8_t thickness = 1) {
-        if (!render::device_checks()) {
+        if (!core::device_checks()) {
             return;
         }
 
@@ -154,65 +261,58 @@ namespace render {
     }
 
     void filled_circle(std::int32_t x, std::int32_t y, std::int32_t r, color col, std::uint8_t segments = 64) {
-        if (!render::device_checks()) {
+        if (!core::device_checks()) {
             return;
         }
 
-        std::vector<vertex> vertices;
-        vertices.reserve(segments + 1);
-
-        vertices.push_back({ (float)x, (float)y, 0.f, 1.f, col.to_d3d() });
-
-        for (std::size_t i = 0; i <= segments; i++) {
-            float angle = (2.0f * std::numbers::pi_v<float> * i) / segments;
-            float x1 = x + std::cos(angle) * r;
-            float y1 = y + std::sin(angle) * r;
-
-            vertices.push_back({ x1, y1, 0.f, 1.f, col.to_d3d() });
+        if (!vertex_buffer::buffer) {
+            return;
         }
 
-        device->SetFVF(D3DFVF_XYZRHW | D3DFVF_DIFFUSE);
-        device->DrawPrimitiveUP(D3DPT_TRIANGLEFAN, segments, vertices.data(), sizeof(vertex));
+        if (!vertex_buffer::update_circle_filled(x, y, r, col, segments)) {
+            return;
+        }
+
+        core::device->SetFVF(D3DFVF_XYZRHW | D3DFVF_DIFFUSE);
+        core::device->SetStreamSource(0, vertex_buffer::buffer, 0, sizeof(vertex));
+        core::device->DrawPrimitive(D3DPT_TRIANGLEFAN, 0, segments);
     }
 
     void outlined_circle(std::int32_t x, std::int32_t y, std::int32_t r, color col, std::uint8_t thickness = 1, std::uint8_t segments = 64) {
-        if (!render::device_checks()) {
+        if (!core::device_checks()) {
+            return;
+        }
+
+        if (!vertex_buffer::buffer) {
             return;
         }
 
         for (std::size_t t = 0; t < thickness; t++) {
-            std::vector<vertex> vertices;
-            vertices.reserve(segments + 1);
-
-            float radius = r + t;
-
-            for (std::size_t i = 0; i <= segments; i++) {
-                float angle = (2.0f * std::numbers::pi_v<float> * i) / segments;
-
-                float x1 = x + std::cos(angle) * radius;
-                float y1 = y + std::sin(angle) * radius;
-
-                vertices.push_back({ (float)x1, (float)y1, 0.f, 1.f, col.to_d3d() });
+            if (!vertex_buffer::update_circle_outlined(x, y, r + t, col, segments)) {
+                return;
             }
 
-            device->SetFVF(D3DFVF_XYZRHW | D3DFVF_DIFFUSE);
-            device->DrawPrimitiveUP(D3DPT_LINESTRIP, segments, vertices.data(), sizeof(vertex));
+            core::device->SetFVF(D3DFVF_XYZRHW | D3DFVF_DIFFUSE);
+            core::device->SetStreamSource(0, vertex_buffer::buffer, 0, sizeof(vertex));
+            core::device->DrawPrimitive(D3DPT_LINESTRIP, 0, segments);
         }
     }
 
-    void line(std::int32_t x1, std::int32_t y1, std::int32_t x2, std::int32_t y2, color col, std::uint8_t thickness = 1) {
-        if (!render::device_checks()) {
+    void line(std::int32_t x1, std::int32_t y1, std::int32_t x2, std::int32_t y2, color col) {
+        if (!core::device_checks()) {
             return;
         }
 
-        for (std::size_t i = 0; i < thickness; i++) {
-            std::vector<vertex> vertices = {
-            { (float)x1, (float)(y1 + i), 0.f, 1.f, col.to_d3d() },
-            { (float)x2, (float)(y2 + i), 0.f, 1.f, col.to_d3d() }
-            };
-
-            device->SetFVF(D3DFVF_XYZRHW | D3DFVF_DIFFUSE);
-            device->DrawPrimitiveUP(D3DPT_LINELIST, 1, vertices.data(), sizeof(vertex));
+        if (!vertex_buffer::buffer) {
+            return;
         }
+
+        if (!vertex_buffer::update_line(x1, y1, x2, y2, col)) {
+            return;
+        }
+
+        core::device->SetFVF(D3DFVF_XYZRHW | D3DFVF_DIFFUSE);
+        core::device->SetStreamSource(0, vertex_buffer::buffer, 0, sizeof(vertex));
+        core::device->DrawPrimitive(D3DPT_LINELIST, 0, 1);
     }
 }   
